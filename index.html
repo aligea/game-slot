@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Game Slot Canvas 4 Kolom</title>
+    <style>
+      body {
+        font-family: "Arial", sans-serif;
+        background-color: #2c3e50;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        margin: 0;
+        color: white;
+      }
+
+      .game-container {
+        background: #34495e;
+        padding: 20px;
+        border-radius: 15px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        text-align: center;
+        border: 5px solid #f1c40f;
+      }
+
+      /* Canvas diberi border agar terlihat area gambarnya */
+      canvas {
+        background: #222;
+        border-radius: 10px;
+        border: 3px solid #111;
+        box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.5);
+        margin-bottom: 20px;
+      }
+
+      .controls {
+        margin-top: 10px;
+      }
+
+      .score-board {
+        font-size: 1.5rem;
+        margin-bottom: 15px;
+        font-weight: bold;
+        color: #f1c40f;
+      }
+
+      button {
+        padding: 12px 30px;
+        font-size: 1.2rem;
+        font-weight: bold;
+        color: #fff;
+        background-color: #e74c3c;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        box-shadow: 0 5px #c0392b;
+        transition: all 0.1s;
+      }
+
+      button:active:not(:disabled) {
+        box-shadow: 0 2px #c0392b;
+        transform: translateY(3px);
+      }
+
+      button:disabled {
+        background-color: #7f8c8d;
+        box-shadow: none;
+        cursor: not-allowed;
+        opacity: 0.7;
+      }
+
+      #messageBtn {
+        background-color: transparent;
+        color: white;
+        box-shadow: none;
+        cursor: default;
+        font-size: 1rem;
+        height: 30px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="game-container">
+      <h1>GAME SLOTS</h1>
+      <div class="score-board">Skor: <span id="scoreDisplay">1000</span></div>
+
+      <canvas id="slotCanvas" width="420" height="200"></canvas>
+
+      <div class="controls">
+        <div
+          id="messageArea"
+          style="height: 30px; font-weight: bold; color: #2ecc71"
+        >
+          Selamat Datang!
+        </div>
+        <button id="spinBtn">PUTAR (Biaya 50)</button>
+      </div>
+    </div>
+
+    <audio
+      id="spinSound"
+      src="/sounds/2003-preview.mp3"
+    ></audio>
+    <audio
+      id="winSound"
+      src="/sounds/mixkit-slot-machine-win-alarm-1995.wav"
+    ></audio>
+
+    <script>
+      /* =====================
+          KONFIGURASI DASAR
+        ===================== */
+      const canvas = document.getElementById("slotCanvas");
+      const ctx = canvas.getContext("2d");
+
+      const spinBtn = document.getElementById("spinBtn");
+      const scoreDisplay = document.getElementById("scoreDisplay");
+      const messageArea = document.getElementById("messageArea");
+
+      const spinSound = document.getElementById("spinSound");
+      const winSound = document.getElementById("winSound");
+
+      //const icons = ["🍒", "🍋", "🔔", "⭐", "💎", "7️⃣"];
+      //const icons = ["😎", "😍", "🍿", "🍆", "🏖️", "💖"];
+      // const icons = ["🍔", "🍕", "🌭", "🍟", "🥤", "🍦"];
+      // const icons = ["🐶", "🐱", "🐭", "🐹", "🐰", "🦊"];
+      //const icons = ["🍉", "🍇", "🍓", "🍒", "🍍", "🥭"];
+      //const icons = ["⚽", "🏀", "🏈", "⚾", "🎾", "🏐"];
+      const icons = ["💰", "💎", "🪙", "📈", "🏆", "🎉"];
+      const NUM_COLS = 4;
+      const COL_WIDTH = 80;
+      const COL_HEIGHT = 140;
+      const ICON_SIZE = 60;
+      const PADDING = 15;
+
+      const START_X =
+        (canvas.width - (NUM_COLS * COL_WIDTH + (NUM_COLS - 1) * PADDING)) / 2;
+      const START_Y = (canvas.height - COL_HEIGHT) / 2;
+
+      /* =====================
+          STATE GAME
+        ===================== */
+      let score = 1000;
+      let state = "READY"; // READY | SPINNING
+
+      const reels = Array.from({ length: NUM_COLS }, () => ({
+        current: randIndex(),
+        target: 0,
+        speed: 0,
+        stopping: false,
+      }));
+
+      /* =====================
+          INIT
+        ===================== */
+      function init() {
+        draw();
+        spinBtn.onclick = spin;
+      }
+      init();
+
+      /* =====================
+          SPIN LOGIC
+        ===================== */
+      function spin() {
+        if (state !== "READY") return;
+        if (score < 50) {
+          showMessage("Skor tidak cukup!", "#e74c3c");
+          return;
+        }
+
+        score -= 50;
+        updateScore();
+
+        state = "SPINNING";
+        spinBtn.disabled = true;
+        showMessage("Memutar...", "#ecf0f1");
+
+        spinSound.currentTime = 0;
+        winSound.pause();
+        winSound.currentTime = 0;
+        spinSound.play();
+
+        reels.forEach((r, i) => {
+          r.speed = 0.35;
+          r.stopping = false;
+          r.target = randIndex();
+
+          setTimeout(() => {
+            r.stopping = true;
+          }, 1000 + i * 500);
+        });
+
+        requestAnimationFrame(loop);
+      }
+
+      /* =====================
+          GAME LOOP
+        ===================== */
+      function loop() {
+        let allStopped = true;
+
+        reels.forEach((r) => {
+          if (r.speed > 0) {
+            r.current = (r.current + r.speed) % icons.length;
+
+            if (r.stopping && r.speed > 0.05) {
+              r.speed *= 0.92;
+            }
+
+            if (r.stopping && r.speed <= 0.05) {
+              r.current = r.target;
+              r.speed = 0;
+            }
+          }
+
+          if (r.speed > 0) allStopped = false;
+        });
+
+        draw();
+
+        if (!allStopped) {
+          requestAnimationFrame(loop);
+        } else {
+          endSpin();
+        }
+      }
+
+      /* =====================
+          END SPIN
+        ===================== */
+      function endSpin() {
+        state = "READY";
+        spinBtn.disabled = false;
+        spinSound.pause();
+        checkWin();
+      }
+
+      /* =====================
+          DRAW
+        ===================== */
+      function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        ctx.font = `${ICON_SIZE}px Arial`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+
+        reels.forEach((r, i) => {
+          const x = START_X + i * (COL_WIDTH + PADDING);
+          const y = START_Y;
+
+          ctx.fillStyle = "#ecf0f1";
+          ctx.fillRect(x, y, COL_WIDTH, COL_HEIGHT);
+
+          ctx.strokeStyle = "#bdc3c7";
+          ctx.strokeRect(x, y, COL_WIDTH, COL_HEIGHT);
+
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(x, y, COL_WIDTH, COL_HEIGHT);
+          ctx.clip();
+
+          for (let k = -1; k <= 1; k++) {
+            const idx = Math.floor(r.current + k + icons.length) % icons.length;
+            const offset = (r.current % 1) * COL_HEIGHT;
+
+            ctx.fillText(
+              icons[idx],
+              x + COL_WIDTH / 2,
+              y + COL_HEIGHT / 2 + k * COL_HEIGHT - offset
+            );
+          }
+
+          ctx.restore();
+        });
+      }
+
+      /* =====================
+          WIN CHECK
+        ===================== */
+      function checkWin() {
+        const results = reels.map((r) => icons[r.target]);
+        const count = {};
+
+        results.forEach((i) => (count[i] = (count[i] || 0) + 1));
+        const max = Math.max(...Object.values(count));
+
+        let win = 0;
+
+        if (max === 4) {
+          win = 1000;
+          showMessage("JACKPOT! +1000", "#f1c40f");
+          winSound.play();
+        } else if (max === 3) {
+          win = 300;
+          showMessage("MENANG BESAR! +300", "#2ecc71");
+          winSound.play();
+        } else if (max === 2) {
+          win = 50;
+          showMessage("LUMAYAN! +50", "#3498db");
+        } else {
+          showMessage("Coba Lagi!", "#e74c3c");
+        }
+
+        score += win;
+        updateScore();
+      }
+
+      /* =====================
+          UTIL
+        ===================== */
+      function randIndex() {
+        return Math.floor(Math.random() * icons.length);
+      }
+
+      function updateScore() {
+        scoreDisplay.textContent = score;
+      }
+
+      function showMessage(msg, color) {
+        messageArea.textContent = msg;
+        messageArea.style.color = color;
+      }
+    </script>
+  </body>
+</html>
